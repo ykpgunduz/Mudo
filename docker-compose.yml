@@ -1,9 +1,8 @@
-version: '3.8'
-
 services:
   mudo-stock-app:
     build: .
     container_name: mudo-app
+    image: mudo
     ports:
       - "9078:80"
     environment:
