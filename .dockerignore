@@ -1,0 +1,34 @@
+# Python cache dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE dosyaları
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS dosyaları
+.DS_Store
+Thumbs.db
+
+# Log dosyaları
+*.log
+logs/
+
+# Temporary dosyalar
+*.tmp
+*.temp
+
+# Docker
+.dockerignore
+
+# Environment variables
+.env
+.env.local

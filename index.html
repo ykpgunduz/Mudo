@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mudo Stok Sistemi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🛍️ Mudo Stok Sistemi</h1>
+        <p class="subtitle">Her şeyin elbet bir kolayı vardır...</p>
+        
+        <form id="stockForm">
+            <div class="barcode-scanner">
+                <button type="button" id="scannerToggle" class="scanner-toggle">📷 Barkod Tarayıcısını Aç</button>
+                <div id="barcode-scanner">
+                    <div class="scanner-status" id="scannerStatus">Kamera başlatılıyor...</div>
+                    <div class="scanner-overlay">
+                        <div class="scanner-frame">
+                            <div class="scanner-corner top-left"></div>
+                            <div class="scanner-corner top-right"></div>
+                            <div class="scanner-corner bottom-left"></div>
+                            <div class="scanner-corner bottom-right"></div>
+                            <div class="scanner-line"></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="scanner-result" class="scanner-result"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="barcode">Barkod Numarası:</label>
+                <div class="input-container">
+                    <input type="number" id="barcode" name="barcode" placeholder="Barkod Numarası" required>
+                    <button type="button" id="pasteBtn" class="paste-btn">📋 Yapıştır</button>
+                </div>
+            </div>
+            
+            <button type="submit" id="searchBtn">🔍 Stok Sorgula</button>
+        </form>
+        
+        <div id="result"></div>
+        
+        <div class="powered-by">
+            Mudo Satış Danışmanı: Yakup Gündüz
+        </div>
+    </div>
+
+    <script>
+        let isScanning = false;
+        let scannerInitialized = false;
+        
+        // Yapıştırma butonu fonksiyonalitesi
+        document.getElementById('pasteBtn').addEventListener('click', async function() {
+            const barcodeInput = document.getElementById('barcode');
+            const pasteBtn = document.getElementById('pasteBtn');
+            
+            try {
+                // Panodaki metni oku
+                const text = await navigator.clipboard.readText();
+                
+                // Sadece sayıları al (diğer karakterleri temizle)
+                const numbersOnly = text.replace(/\D/g, '');
+                
+                if (numbersOnly) {
+                    barcodeInput.value = numbersOnly;
+                    pasteBtn.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
+                    pasteBtn.textContent = '✓ Yapıştırıldı';
+                    
+                    // 2 saniye sonra orijinal hale döndür
+                    setTimeout(() => {
+                        pasteBtn.style.background = 'linear-gradient(135deg, #17a2b8 0%, #20c997 100%)';
+                        pasteBtn.textContent = '📋 Yapıştır';
+                    }, 2000);
+                    
+                    // Input alanına fokus ver
+                    barcodeInput.focus();
+                    
+                    // Hemen otomatik sorgu başlat (haneli kontrolü yok)
+                    setTimeout(() => {
+                        document.getElementById('stockForm').dispatchEvent(new Event('submit'));
+                    }, 300);
+                } else {
+                    // Sayı yoksa hata göster
+                    pasteBtn.style.background = 'linear-gradient(135deg, #dc3545 0%, #fd7e14 100%)';
+                    pasteBtn.textContent = '❌ Sayı Yok';
+                    
+                    setTimeout(() => {
+                        pasteBtn.style.background = 'linear-gradient(135deg, #17a2b8 0%, #20c997 100%)';
+                        pasteBtn.textContent = '📋 Yapıştır';
+                    }, 2000);
+                }
+                
+            } catch (err) {
+                console.error('Yapıştırma hatası:', err);
+                pasteBtn.style.background = 'linear-gradient(135deg, #dc3545 0%, #fd7e14 100%)';
+                pasteBtn.textContent = '❌ Hata';
+                
+                setTimeout(() => {
+                    pasteBtn.style.background = 'linear-gradient(135deg, #17a2b8 0%, #20c997 100%)';
+                    pasteBtn.textContent = '📋 Yapıştır';
+                }, 2000);
+            }
+        });
+        
+        // Barkod tarayıcı toggle
+        document.getElementById('scannerToggle').addEventListener('click', function() {
+            const scanner = document.getElementById('barcode-scanner');
+            const toggleBtn = document.getElementById('scannerToggle');
+            const result = document.getElementById('scanner-result');
+            
+            if (!isScanning) {
+                startBarcodeScanner();
+                scanner.style.display = 'block';
+                scanner.classList.add('scanning');
+                toggleBtn.textContent = '❌ Tarayıcıyı Kapat';
+                toggleBtn.classList.add('active');
+                result.style.display = 'none';
+                isScanning = true;
+            } else {
+                stopBarcodeScanner();
+                scanner.style.display = 'none';
+                scanner.classList.remove('scanning');
+                toggleBtn.textContent = '📷 Barkod Tarayıcısını Aç';
+                toggleBtn.classList.remove('active');
+                isScanning = false;
+                scannerInitialized = false;
+            }
+        });
+        
+        function updateScannerStatus(message, isReady = false) {
+            const status = document.getElementById('scannerStatus');
+            status.textContent = message;
+            status.className = 'scanner-status ' + (isReady ? 'ready' : '');
+        }
+        
+        function startBarcodeScanner() {
+            updateScannerStatus('Kamera başlatılıyor...');
+            
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: document.querySelector('#barcode-scanner'),
+                    constraints: {
+                        width: 640,
+                        height: 480,
+                        facingMode: "environment"
+                    }
+                },
+                locator: {
+                    patchSize: "medium",
+                    halfSample: true
+                },
+                decoder: {
+                    readers: ["ean_reader"]
+                },
+                locate: true
+            }, function(err) {
+                if (err) {
+                    console.error('Kamera hatası:', err);
+                    showScannerError('Kamera hatası');
+                    return;
+                }
+                
+                updateScannerStatus('Barkodu tutun', true);
+                scannerInitialized = true;
+                Quagga.start();
+            });
+            
+            Quagga.onDetected(onBarcodeDetected);
+        }
+        
+        function stopBarcodeScanner() {
+            if (Quagga && scannerInitialized) {
+                Quagga.stop();
+                Quagga.offDetected(onBarcodeDetected);
+            }
+            updateScannerStatus('Kamera kapatıldı');
+        }
+        
+        function onBarcodeDetected(result) {
+            const code = result.codeResult.code;
+            // Hemen kabul et - hiçbir doğrulama yok
+            acceptBarcode(code);
+        }
+        
+        function acceptBarcode(code) {
+            // Input alanına barkodu yaz
+            document.getElementById('barcode').value = code;
+            
+            // Başarı mesajı göster
+            const scannerResult = document.getElementById('scanner-result');
+            scannerResult.innerHTML = `✅ Barkod okundu: <strong>${code}</strong>`;
+            scannerResult.className = 'scanner-result';
+            scannerResult.style.display = 'block';
+            
+            // Tarayıcıyı kapat
+            document.getElementById('scannerToggle').click();
+            
+            // Hemen sorgu yap
+            document.getElementById('stockForm').dispatchEvent(new Event('submit'));
+        }
+        
+        function playSuccessSound() {
+            // Basit beep sesi oluştur
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.3);
+            } catch (e) {
+                // Ses çalma hatası - sessizce geç
+            }
+        }
+        
+        function showScannerError(message) {
+            const scannerResult = document.getElementById('scanner-result');
+            scannerResult.innerHTML = `❌ ${message}`;
+            scannerResult.className = 'scanner-result error';
+            scannerResult.style.display = 'block';
+            updateScannerStatus('Hata oluştu', false);
+        }
+        
+        document.getElementById('stockForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const barcodeInput = document.getElementById('barcode');
+            const resultDiv = document.getElementById('result');
+            const searchBtn = document.getElementById('searchBtn');
+            
+            const barcode = barcodeInput.value.trim();
+            
+            if (!barcode) {
+                showResult('Lütfen geçerli bir barkod numarası giriniz.', 'error');
+                return;
+            }
+            
+            // Yükleme durumunu göster
+            searchBtn.disabled = true;
+            searchBtn.textContent = '⏳ Sorgulanıyor...';
+            showResult('<div class="spinner"></div><p>Stok Bilgileri Çekiliyor...</p>', 'loading');
+            
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ barcode: barcode })
+                });
+                
+                const data = await response.json();
+                
+                console.log('📦 Gelen veri:', data); // Debug için
+                
+                if (data.success) {
+                    displayStockInfo(data);
+                } else {
+                    showResult(`❌ Hata: ${data.error}<br>
+                               ${data.url ? `<br>Manuel kontrol: <a href="${data.url}" target="_blank">${data.url}</a>` : ''}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('Fetch hatası:', error);
+                showResult(`❌ Bağlantı hatası: ${error.message}<br>
+                           Lütfen Python Flask sunucusunun çalıştığından emin olun.`, 'error');
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.textContent = '🔍 Stok Sorgula';
+            }
+        });
+        
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = message;
+            resultDiv.className = type;
+            resultDiv.style.display = 'block';
+            
+            // Hata durumlarında başlığı değiştirme (zaten değişmiyor)
+            // if (type === 'error') {
+            //     document.querySelector('h1').textContent = '🛍️ Mudo Stok Sorgulama';
+            // }
+        }
+        
+        function displayStockInfo(data) {
+            console.log('🔍 displayStockInfo - gelen veri:', data);
+            console.log('🔍 product_info:', data.product_info);
+            console.log('🔍 product_info.title:', data.product_info?.title);
+            
+            let html = '<div class="stock-info">';
+            
+            // GEÇERSİZ BARKOD KONTROL SİSTEMİ
+            let isInvalidBarcode = false;
+            let invalidReason = '';
+            
+            // Kontrol 1: Ürün başlığı kontrolü
+            const hasNoProductTitle = !data.product_info || !data.product_info.title || data.product_info.title.trim() === '';
+            
+            // Kontrol 2: Sadece Cevahir Giyim kontrolü (kesin tespit)
+            const hasOnlyCevahir = data.stock_data && data.stock_data.length === 1 && 
+                                  data.stock_data[0].store.toLowerCase().includes('cevahir');
+            
+            // Kontrol 3: Tüm mağazalar Cevahir içeriyor mu?
+            const allStoresAreCevahir = data.stock_data && data.stock_data.length > 0 && 
+                                       data.stock_data.every(item => item.store.toLowerCase().includes('cevahir'));
+            
+            // Kontrol 4: Hiç stok verisi yok
+            const hasNoStockData = !data.stock_data || data.stock_data.length === 0;
+            
+            // ESAS KARAR MANTĞI
+            if (hasOnlyCevahir || allStoresAreCevahir) {
+                isInvalidBarcode = true;
+                invalidReason = 'Sadece varsayılan mağaza (Cevahir Giyim) gösteriliyor - Bu geçersiz barkod işareti';
+            } else if (hasNoStockData) {
+                isInvalidBarcode = true;
+                invalidReason = 'Hiç stok verisi yok';
+            } else if (hasNoProductTitle && data.stock_data && data.stock_data.length > 0) {
+                isInvalidBarcode = true;
+                invalidReason = 'Ürün başlığı yok ama stok verisi var';
+            }
+            
+            if (isInvalidBarcode) {
+                // Geçersiz barkod durumunda başlığı eski halinde bırak (zaten değişmiyor)
+                // document.querySelector('h1').textContent = '🛍️ Mudo Stok Sorgulama';
+                showResult(`❌ <strong>Geçersiz Barkod Tespit Edildi!</strong><br><br>
+                           🔍 Barkod: <strong>"${document.getElementById('barcode').value}"</strong><br>
+                           📝 Sebep: ${invalidReason}<br><br>
+                           🎯 <strong>Çözüm:</strong><br>
+                           • Barkod numarasını kontrol edin<br>
+                           • Ürünün Mudo'da satışta olduğundan emin olun<br>
+                           • Farklı bir barkod deneyin<br><br>
+                           💡 <em>Not: Mudo sitesinde "Aradığınız ürün bulunamadı" mesajı çıkıyorsa barkod geçersizdir.</em>`, 'error');
+                return;
+            }
+            
+            // Ürün başlığı ve detayları
+            if (data.product_info && data.product_info.title) {
+                // Sayfa başlığını eski halinde bırak - değiştirme
+                // document.querySelector('h1').textContent = `📦 ${data.product_info.title}`;
+                
+                // Ürün ismini satış fiyatının üstünde başlık olarak göster
+                html += `<div class="product-title">📦 ${data.product_info.title}</div>`;
+                
+                // Ürün detay bilgileri - sadece fiyat
+                let productDetails = '';
+                if (data.product_info.price) {
+                    productDetails += `<span class="product-detail">💰 Fiyat: <strong>${data.product_info.price}</strong></span>`;
+                }
+                // İndirim bilgisini kaldır
+                // if (data.product_info.discount) {
+                //     productDetails += `<span class="product-detail discount">🏷️ ${data.product_info.discount}</span>`;
+                // }
+                
+                if (productDetails) {
+                    html += `<div class="product-details">${productDetails}</div>`;
+                }
+            }
+            
+            // Stok bilgileri
+            if (data.stock_data && data.stock_data.length > 0) {
+                html += '<h4>📊 Stok Bilgileri:</h4>';
+                
+                // "concept alt grup" ile başlayan satırları filtrele
+                const filteredStockData = data.stock_data.filter(item => {
+                    const storeName = item.store.toLowerCase();
+                    return !storeName.includes('concept alt grup');
+                });
+                
+                // Filtreleme sonrası hiç stok yoksa hata göster
+                if (filteredStockData.length === 0) {
+                    html += '</div>';
+                    showResult('❌ Bu ürün için stok bilgisi bulunamadı. Lütfen barkod numarasını kontrol edin.', 'error');
+                    return;
+                }
+                
+                // Vadistanbul City için kontrol
+                const vadistanbulCityStore = filteredStockData.find(item => 
+                    item.store.toLowerCase().includes('vadistanbul') && 
+                    item.store.toLowerCase().includes('city')
+                );
+                
+                // Eğer Vadistanbul City yoksa, 0 stoklı olarak ekle
+                if (!vadistanbulCityStore) {
+                    filteredStockData.unshift({
+                        store: "Vadistanbul City",
+                        stock: "0",
+                        is_priority: true,
+                        no_stock: true
+                    });
+                }
+                
+                // Önce Vadistanbul City'yi göster
+                let priorityShown = false;
+                let vadistanbulCityShown = false;
+                let otherStoresHeaderAdded = false; // Diğer mağazalar başlığının eklenip eklenmediğini takip et
+                
+                filteredStockData.forEach((item, index) => {
+                    const isPriority = item.is_priority || false;
+                    const hasNoStock = item.no_stock || false;
+                    const itemClass = isPriority ? 
+                        (hasNoStock ? 'stock-item priority no-stock' : 'stock-item priority') : 
+                        'stock-item';
+                    const storeClass = isPriority ? 
+                        (hasNoStock ? 'store-name priority no-stock' : 'store-name priority') : 
+                        'store-name';
+                    const stockClass = isPriority ? 
+                        (hasNoStock ? 'stock-count priority no-stock' : 'stock-count priority') : 
+                        'stock-count';
+                    
+                    // Diğer mağazalar başlığını sadece bir kez ekle
+                    if (!isPriority && !otherStoresHeaderAdded) {
+                        html += '<div style="margin: 20px 0; color: #374151; font-weight: 600; border-top: 3px solid #e5e7eb; padding-top: 18px; font-size: 1.1em;">🏬 DİĞER MAĞAZALAR</div>';
+                        otherStoresHeaderAdded = true;
+                    }
+                    
+                    // Mağaza adından sadece sayıları ve parantezleri kaldır
+                    let cleanStoreName = item.store
+                        .replace(/\s*\d+\s*/g, ' ') // Sayıları ve etrafındaki boşlukları kaldır
+                        .replace(/\([^)]*\)/g, '') // Parantez ve içindeki herşeyi kaldır
+                        .replace(/\s+/g, ' ') // Çoklu boşlukları tek boşluğa çevir
+                        .trim(); // Baştaki ve sondaki boşlukları kaldır
+                    
+                    const storeIcon = isPriority ? (hasNoStock ? '❌ ' : '⭐ ') : '🏪 ';
+                    
+                    html += `
+                        <div class="${itemClass}">
+                            <span class="${storeClass}">${storeIcon}${cleanStoreName}</span>
+                            <span class="${stockClass}">${item.stock}</span>
+                        </div>
+                    `;
+                    
+                    // Vadistanbul City gösterildikten hemen sonra beden seçici ekle
+                    if (isPriority && !vadistanbulCityShown) {
+                        vadistanbulCityShown = true;
+                        priorityShown = true;
+                        
+                        // Debug: Beden bilgilerini console'a yazdır
+                        console.log('🔍 Beden bilgileri kontrol ediliyor:', data.size_info);
+                        console.log('🔍 Detaylı kontrol:', {
+                            'size_info_var': typeof data.size_info,
+                            'success': data.size_info?.success,
+                            'is_clothing': data.size_info?.is_clothing,
+                            'sizes': data.size_info?.sizes,
+                            'sizes_length': data.size_info?.sizes?.length
+                        });
+                        
+                        // Varyant bilgilerini de kontrol et ve ekle
+                        if (data.variants && data.variants.length > 0) {
+                            console.log('🎨 Varyant bilgileri bulundu:', data.variants);
+                            html += '</div>' + createVariantSelector(data.variants) + '<div class="stock-info">';
+                        } else {
+                            console.log('⚠️ Varyant bilgisi bulunamadı');
+                        }
+                    }
+                });
+            } else {
+                html += '</div>';
+                showResult('❌ Bu ürün için stok bilgisi bulunamadı. Lütfen barkod numarasını kontrol edin veya ürünün sistemde kayıtlı olduğundan emin olun.', 'error');
+                return;
+            }
+            
+            html += '</div>';
+            
+            showResult(html, 'success');
+        }
+        
+        // Varyant seçici oluşturma fonksiyonu
+        function createVariantSelector(variants) {
+            console.log('🎨 createVariantSelector çağrıldı, variants:', variants);
+            
+            // Varyantları renklere göre grupla
+            const colorGroups = {};
+            variants.forEach((variant, index) => {
+                const color = variant.color;
+                if (!colorGroups[color]) {
+                    colorGroups[color] = [];
+                }
+                colorGroups[color].push({...variant, originalIndex: index});
+            });
+            
+            let variantHtml = `
+                <div class="variant-selector">
+                    <h4>Diğer Renk ve Beden Seçenekleri</h4>
+                    <div class="variant-buttons">
+            `;
+            
+            // Her renk için ayrı grup oluştur
+            Object.keys(colorGroups).forEach(color => {
+                const colorVariants = colorGroups[color];
+                
+                variantHtml += `
+                    <div class="color-group">
+                        <div class="color-group-title">🎨 ${color}</div>
+                        <div class="size-buttons-row">
+                `;
+                
+                colorVariants.forEach(variant => {
+                    console.log(`🎨 Varyant butonu oluşturuluyor: ${variant.size} (${variant.barcode})`);
+                    
+                    variantHtml += `
+                        <button type="button" class="variant-button" onclick="selectVariant('${variant.barcode}', '${variant.display_name}', ${variant.originalIndex})">
+                            <div class="variant-size">${variant.size}</div>
+                            <div class="variant-barcode">${variant.barcode.slice(-4)}</div>
+                        </button>
+                    `;
+                });
+                
+                variantHtml += `
+                        </div>
+                    </div>
+                `;
+            });
+            
+            variantHtml += `
+                    </div>
+                </div>
+            `;
+            
+            return variantHtml;
+        }
+        
+        // Varyant seçimi fonksiyonu
+        function selectVariant(barcode, displayName, originalIndex) {
+            console.log(`🎨 Varyant seçildi: ${displayName} (${barcode})`);
+            
+            // Seçili varyant butonunu vurgula - tüm butonları kontrol et
+            document.querySelectorAll('.variant-button').forEach((btn, i) => {
+                // Tıklanan butonu bul (barkod ile karşılaştır)
+                const btnBarcode = btn.onclick.toString().match(/'(\d+)'/);
+                if (btnBarcode && btnBarcode[1] === barcode) {
+                    btn.classList.add('selected');
+                    console.log(`✅ Buton seçili olarak işaretlendi: ${displayName}`);
+                } else {
+                    btn.classList.remove('selected');
+                }
+            });
+            
+            // Barkod input'una yeni barkod numarasını yaz
+            const barcodeInput = document.getElementById('barcode');
+            const oldBarcode = barcodeInput.value;
+            barcodeInput.value = barcode;
+            
+            console.log(`🔄 Barkod değiştirildi: ${oldBarcode} → ${barcode}`);
+            
+            // Yeni barkod ile otomatik stok sorgusu başlat
+            setTimeout(() => {
+                console.log('🚀 Otomatik stok sorgusu başlatılıyor...');
+                document.getElementById('stockForm').dispatchEvent(new Event('submit'));
+            }, 500);
+        }
+        
+        // Barkod input eventi - 13 basamak tamamlandığında otomatik sorgu
+        document.getElementById('barcode').addEventListener('input', function(e) {
+            const value = e.target.value;
+            
+            // 13 basamak tamamlandığında otomatik sorgu başlat
+            if (value.length === 13) {
+                // Kısa bir gecikme ekleyerek kullanıcının son rakamı görmesini sağla
+                setTimeout(() => {
+                    document.getElementById('stockForm').dispatchEvent(new Event('submit'));
+                }, 300);
+            }
+        });
+        
+        // Enter tuşu ile form gönderimi
+        document.getElementById('barcode').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('stockForm').dispatchEvent(new Event('submit'));
+            }
+        });
+    </script>
+</body>
+</html>
