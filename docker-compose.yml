@@ -5,7 +5,7 @@ services:
     build: .
     container_name: mudo_stock_app
     ports:
-      - "90:5000"
+      - "9078:80"
     environment:
       - FLASK_ENV=production
       - FLASK_APP=app.py
